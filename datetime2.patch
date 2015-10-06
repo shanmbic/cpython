@@ -1,0 +1,210 @@
+diff -r 07161dd8a078 Doc/library/datetime.rst
+--- a/Doc/library/datetime.rst	Mon Oct 05 10:35:19 2015 -0700
++++ b/Doc/library/datetime.rst	Tue Oct 06 04:11:31 2015 +0530
+@@ -1872,6 +1872,16 @@
+ |           | or -HHMM (empty string if the  | +1030                  |       |
+ |           | the object is naive).          |                        |       |
+ +-----------+--------------------------------+------------------------+-------+
++| ``%:z``   | UTC offset in the form +HH:MM  | (empty), +00:00,       |       |
++|           | or -HH:MM (empty string if the | -04:00, +10:30         |       |
++|           | the object is naive).          |                        |       |
++|           | .. versionadded:: 3.6          |                        |       |
+++-----------+--------------------------------+------------------------+-------+
++| ``%::z``  | UTC offset in the form         | (empty), +00:00:00,    |       |
++|           | +HH:MM:SS or -HH:MM:SS (empty  | -04:00:20, +10:30:37   |       |
++|           | string if the object is naive).|                        |       |
++|           | .. versionadded:: 3.6          |                        |       |
+++-----------+--------------------------------+------------------------+-------+
+ | ``%Z``    | Time zone name (empty string   | (empty), UTC, EST, CST |       |
+ |           | if the object is naive).       |                        |       |
+ +-----------+--------------------------------+------------------------+-------+
+diff -r 07161dd8a078 Modules/_datetimemodule.c
+--- a/Modules/_datetimemodule.c	Mon Oct 05 10:35:19 2015 -0700
++++ b/Modules/_datetimemodule.c	Tue Oct 06 04:11:31 2015 +0530
+@@ -1027,19 +1027,22 @@
+ 
+ static PyObject *delta_negative(PyDateTime_Delta *self);
+ 
+-/* Add an hours & minutes UTC offset string to buf.  buf has no more than
++/* Add an hours , minutes and seconds UTC offset string to buf.  buf has no more than
+  * buflen bytes remaining.  The UTC offset is gotten by calling
+  * tzinfo.uctoffset(tzinfoarg).  If that returns None, \0 is stored into
+  * *buf, and that's all.  Else the returned value is checked for sanity (an
+  * integer in range), and if that's OK it's converted to an hours & minutes
+- * string of the form
++ * string of the form , if secondsrequired argument is false(0)
+  *   sign HH sep MM
++ * or it's converted to an hour , minutes and seconds string of the form
++ *   sign HH sep MM sep SS
++ * if secondsrequired argument is set to true(1) 
+  * Returns 0 if everything is OK.  If the return value from utcoffset() is
+  * bogus, an appropriate exception is set and -1 is returned.
+  */
+ static int
+ format_utcoffset(char *buf, size_t buflen, const char *sep,
+-                PyObject *tzinfo, PyObject *tzinfoarg)
++                PyObject *tzinfo, PyObject *tzinfoarg, int secondsrequired)
+ {
+     PyObject *offset;
+     int hours, minutes, seconds;
+@@ -1072,9 +1075,15 @@
+     Py_DECREF(offset);
+     minutes = divmod(seconds, 60, &seconds);
+     hours = divmod(minutes, 60, &minutes);
+-    assert(seconds == 0);
+-    /* XXX ignore sub-minute data, curently not allowed. */
+-    PyOS_snprintf(buf, buflen, "%c%02d%s%02d", sign, hours, sep, minutes);
++    if (secondsrequired == 1) {
++        PyOS_snprintf(buf, buflen, "%c%02d%s%02d%s%02d", 
++                        sign, hours, sep, 
++                        minutes, sep, seconds);
++    }
++    else {
++        PyOS_snprintf(buf, buflen, "%c%02d%s%02d", 
++                        sign, hours, sep, minutes);
++    }
+ 
+     return 0;
+ }
+@@ -1201,6 +1210,75 @@
+             goto Done;
+         }
+         /* A % has been seen and ch is the character after it. */
++        else if (ch == ':') {
++            if (zreplacement == NULL) {
++                /* format utcoffset */
++                char buf[100];
++                PyObject *tzinfo = get_tzinfo_member(object);
++                zreplacement = PyBytes_FromStringAndSize("", 0);
++                if (zreplacement == NULL) goto Done;
++                if (tzinfo != Py_None && tzinfo != NULL) {
++                    assert(tzinfoarg != NULL);
++                    /* If the next character after ':' is 'z' return the timezone 
++                    formatted as signHH:MM */
++                    if ((ch = *pin++) == '\0') {
++                        /* Invalid string as it only contains characters %:  */
++                        PyErr_SetString(PyExc_ValueError, "strftime format "
++                            "ends with raw :");
++                        goto Done;
++                    }
++                    else if (ch == 'z') {
++                        if (format_utcoffset(buf,
++                                             sizeof(buf),
++                                             ":",
++                                             tzinfo,
++                                             tzinfoarg, 0) < 0)
++                            goto Done;
++                    }
++                    else if (ch == ':') {
++                        if ((ch = *pin++) == '\0') {
++                            /* Invalid string containing %:: */
++                            PyErr_SetString(PyExc_ValueError, "strftime format "
++                            "ends with raw :");
++                            goto Done;
++                        }
++                        /* If the next character after ':' is again ':' and the the next 
++                        character is 'z', include the seconds offset and return the 
++                        timezone formatted as signHH:MM:SS */
++                        else if (ch == 'z'){
++                            if (format_utcoffset(buf,
++                                             sizeof(buf),
++                                             ":",
++                                             tzinfo,
++                                             tzinfoarg, 1) < 0)
++                                goto Done;
++
++                        }
++                        else {
++                            /* %:: followed not followed by z */ 
++                            ptoappend = pin - 3;
++                            ntoappend = 3;
++                        }
++                                         
++                    }
++                    else {
++                        /* %: followed by neither z nor : */ 
++                        ptoappend = pin - 4;
++                        ntoappend = 4;
++                    }
++
++                    Py_DECREF(zreplacement);
++                    zreplacement =
++                    PyBytes_FromStringAndSize(buf,
++                                               strlen(buf));
++                    if (zreplacement == NULL)
++                        goto Done;
++                }
++            }
++            assert(zreplacement != NULL);
++            ptoappend = PyBytes_AS_STRING(zreplacement);
++            ntoappend = PyBytes_GET_SIZE(zreplacement);
++        }
+         else if (ch == 'z') {
+             if (zreplacement == NULL) {
+                 /* format utcoffset */
+@@ -1214,7 +1292,7 @@
+                                          sizeof(buf),
+                                          "",
+                                          tzinfo,
+-                                         tzinfoarg) < 0)
++                                         tzinfoarg, 0) < 0)
+                         goto Done;
+                     Py_DECREF(zreplacement);
+                     zreplacement =
+@@ -1256,7 +1334,7 @@
+             ntoappend = PyBytes_GET_SIZE(freplacement);
+         }
+         else {
+-            /* percent followed by neither z nor Z */
++            /* percent followed by neither of :, z, Z */
+             ptoappend = pin - 2;
+             ntoappend = 2;
+         }
+@@ -3046,7 +3124,7 @@
+         goto Fail;
+     if (dst == Py_None)
+         goto Inconsistent;
+-    if (delta_bool((PyDateTime_Delta *)dst) != 0) {
++    if (delta_bool(delta) != 0) {
+         PyObject *temp = result;
+         result = add_datetime_timedelta((PyDateTime_DateTime *)result,
+                                         (PyDateTime_Delta *)dst, 1);
+@@ -3635,7 +3713,7 @@
+ 
+     /* We need to append the UTC offset. */
+     if (format_utcoffset(buf, sizeof(buf), ":", self->tzinfo,
+-                         Py_None) < 0) {
++                         Py_None, 0) < 0) {
+         Py_DECREF(result);
+         return NULL;
+     }
+@@ -4117,14 +4195,13 @@
+ datetime_best_possible(PyObject *cls, TM_FUNC f, PyObject *tzinfo)
+ {
+     _PyTime_t ts = _PyTime_GetSystemClock();
+-    time_t secs;
+-    int us;
+-
+-    if (_PyTime_AsTimevalTime_t(ts, &secs, &us, _PyTime_ROUND_FLOOR) < 0)
++    struct timeval tv;
++
++    if (_PyTime_AsTimeval(ts, &tv, _PyTime_ROUND_FLOOR) < 0)
+         return NULL;
+-    assert(0 <= us && us <= 999999);
+-
+-    return datetime_from_timet_and_us(cls, f, secs, us, tzinfo);
++    assert(0 <= tv.tv_usec && tv.tv_usec <= 999999);
++
++    return datetime_from_timet_and_us(cls, f, tv.tv_sec, tv.tv_usec, tzinfo);
+ }
+ 
+ /*[clinic input]
+@@ -4513,7 +4590,7 @@
+ 
+     /* We need to append the UTC offset. */
+     if (format_utcoffset(buffer, sizeof(buffer), ":", self->tzinfo,
+-                         (PyObject *)self) < 0) {
++                         (PyObject *)self, 0) < 0) {
+         Py_DECREF(result);
+         return NULL;
+     }

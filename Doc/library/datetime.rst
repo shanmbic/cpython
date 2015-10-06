@@ -1875,10 +1875,12 @@ format codes.
 | ``%:z``   | UTC offset in the form +HH:MM  | (empty), +00:00,       |       |
 |           | or -HH:MM (empty string if the | -04:00, +10:30         |       |
 |           | the object is naive).          |                        |       |
+|           | .. versionadded:: 3.6          |                        |       |
 +-----------+--------------------------------+------------------------+-------+
 | ``%::z``  | UTC offset in the form         | (empty), +00:00:00,    |       |
 |           | +HH:MM:SS or -HH:MM:SS (empty  | -04:00:20, +10:30:37   |       |
 |           | string if the object is naive).|                        |       |
+|           | .. versionadded:: 3.6          |                        |       |
 +-----------+--------------------------------+------------------------+-------+
 | ``%Z``    | Time zone name (empty string   | (empty), UTC, EST, CST |       |
 |           | if the object is naive).       |                        |       |

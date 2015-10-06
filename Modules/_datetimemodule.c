@@ -1039,7 +1039,7 @@ static PyObject *delta_negative(PyDateTime_Delta *self);
  */
 static int
 format_utcoffset(char *buf, size_t buflen, const char *sep,
-                PyObject *tzinfo, PyObject *tzinfoarg, PyObject *secondsrequired)
+                PyObject *tzinfo, PyObject *tzinfoarg)
 {
     PyObject *offset;
     int hours, minutes, seconds;
@@ -1072,14 +1072,9 @@ format_utcoffset(char *buf, size_t buflen, const char *sep,
     Py_DECREF(offset);
     minutes = divmod(seconds, 60, &seconds);
     hours = divmod(minutes, 60, &minutes);
-    /* assert(seconds == 0) */
+    assert(seconds == 0);
     /* XXX ignore sub-minute data, curently not allowed. */
-    if ((PyObject *)secondsrequired == Py_True){
-    PyOS_snprintf(buf, buflen, "%c%02d%s%02d%s%02d", sign, hours, sep, minutes, sep, seconds);
-    }
-    else{
     PyOS_snprintf(buf, buflen, "%c%02d%s%02d", sign, hours, sep, minutes);
-    }
 
     return 0;
 }
@@ -1206,45 +1201,6 @@ wrap_strftime(PyObject *object, PyObject *format, PyObject *timetuple,
             goto Done;
         }
         /* A % has been seen and ch is the character after it. */
-        else if (ch == ':') {
-                 if (zreplacement == NULL) {
-                /* format utcoffset */
-                char buf[100];
-                PyObject *tzinfo = get_tzinfo_member(object);
-                zreplacement = PyBytes_FromStringAndSize("", 0);
-                if (zreplacement == NULL) goto Done;
-                if (tzinfo != Py_None && tzinfo != NULL) {
-                    assert(tzinfoarg != NULL);
-                    /* If the next character after ':' is 'z' return the timzone formatted as signHH:MM */
-                    if ((ch = *pin++) == 'z') {
-                    if (format_utcoffset(buf,
-                                         sizeof(buf),
-                                         ":",
-                                         tzinfo,
-                                         tzinfoarg, Py_False) < 0)
-                        goto Done;
-                    }
-                    if (ch == ':' && (ch == *pin++)!='\0' && ch == 'z'){
-                    if (format_utcoffset(buf,
-                                         sizeof(buf),
-                                         ":",
-                                         tzinfo,
-                                         tzinfoarg, Py_True) < 0)
-                        goto Done;
-                                         
-                    }
-                    Py_DECREF(zreplacement);
-                    zreplacement =
-                      PyBytes_FromStringAndSize(buf,
-                                               strlen(buf));
-                    if (zreplacement == NULL)
-                        goto Done;
-                }
-            }
-            assert(zreplacement != NULL);
-            ptoappend = PyBytes_AS_STRING(zreplacement);
-            ntoappend = PyBytes_GET_SIZE(zreplacement);
-        }
         else if (ch == 'z') {
             if (zreplacement == NULL) {
                 /* format utcoffset */
@@ -1258,7 +1214,7 @@ wrap_strftime(PyObject *object, PyObject *format, PyObject *timetuple,
                                          sizeof(buf),
                                          "",
                                          tzinfo,
-                                         tzinfoarg, Py_False) < 0)
+                                         tzinfoarg) < 0)
                         goto Done;
                     Py_DECREF(zreplacement);
                     zreplacement =
@@ -3679,7 +3635,7 @@ time_isoformat(PyDateTime_Time *self, PyObject *unused)
 
     /* We need to append the UTC offset. */
     if (format_utcoffset(buf, sizeof(buf), ":", self->tzinfo,
-                         Py_None, Py_False) < 0) {
+                         Py_None) < 0) {
         Py_DECREF(result);
         return NULL;
     }
@@ -4556,7 +4512,7 @@ datetime_isoformat(PyDateTime_DateTime *self, PyObject *args, PyObject *kw)
 
     /* We need to append the UTC offset. */
     if (format_utcoffset(buffer, sizeof(buffer), ":", self->tzinfo,
-                         (PyObject *)self, Py_False) < 0) {
+                         (PyObject *)self) < 0) {
         Py_DECREF(result);
         return NULL;
     }

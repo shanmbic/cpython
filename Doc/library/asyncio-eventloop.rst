@@ -275,7 +275,9 @@ Creating connections
      to bind the socket to locally.  The *local_host* and *local_port*
      are looked up using getaddrinfo(), similarly to *host* and *port*.
 
-   On Windows with :class:`ProactorEventLoop`, SSL/TLS is not supported.
+   .. versionchanged:: 3.5
+
+      On Windows with :class:`ProactorEventLoop`, SSL/TLS is now supported.
 
    .. seealso::
 
@@ -283,17 +285,50 @@ Creating connections
       (:class:`StreamReader`, :class:`StreamWriter`) instead of a protocol.
 
 
-.. coroutinemethod:: BaseEventLoop.create_datagram_endpoint(protocol_factory, local_addr=None, remote_addr=None, \*, family=0, proto=0, flags=0)
+.. coroutinemethod:: BaseEventLoop.create_datagram_endpoint(protocol_factory, local_addr=None, remote_addr=None, \*, family=0, proto=0, flags=0, reuse_address=None, reuse_port=None, allow_broadcast=None, sock=None)
 
    Create datagram connection: socket family :py:data:`~socket.AF_INET` or
    :py:data:`~socket.AF_INET6` depending on *host* (or *family* if specified),
-   socket type :py:data:`~socket.SOCK_DGRAM`.
+   socket type :py:data:`~socket.SOCK_DGRAM`. *protocol_factory* must be a
+   callable returning a :ref:`protocol <asyncio-protocol>` instance.
 
    This method is a :ref:`coroutine <coroutine>` which will try to
    establish the connection in the background.  When successful, the
    coroutine returns a ``(transport, protocol)`` pair.
 
-   See the :meth:`BaseEventLoop.create_connection` method for parameters.
+   Options changing how the connection is created:
+
+   * *local_addr*, if given, is a ``(local_host, local_port)`` tuple used
+     to bind the socket to locally.  The *local_host* and *local_port*
+     are looked up using :meth:`getaddrinfo`.
+
+   * *remote_addr*, if given, is a ``(remote_host, remote_port)`` tuple used
+     to connect the socket to a remote address.  The *remote_host* and
+     *remote_port* are looked up using :meth:`getaddrinfo`.
+
+   * *family*, *proto*, *flags* are the optional address family, protocol
+     and flags to be passed through to :meth:`getaddrinfo` for *host*
+     resolution. If given, these should all be integers from the
+     corresponding :mod:`socket` module constants.
+
+   * *reuse_address* tells the kernel to reuse a local socket in
+     TIME_WAIT state, without waiting for its natural timeout to
+     expire. If not specified will automatically be set to True on
+     UNIX.
+
+   * *reuse_port* tells the kernel to allow this endpoint to be bound to the
+     same port as other existing endpoints are bound to, so long as they all
+     set this flag when being created. This option is not supported on Windows
+     and some UNIX's. If the :py:data:`~socket.SO_REUSEPORT` constant is not
+     defined then this capability is unsupported.
+
+   * *allow_broadcast* tells the kernel to allow this endpoint to send
+     messages to the broadcast address.
+
+   * *sock* can optionally be specified in order to use a preexisting,
+     already connected, :class:`socket.socket` object to be used by the
+     transport. If specified, *local_addr* and *remote_addr* should be omitted
+     (must be :const:`None`).
 
    On Windows with :class:`ProactorEventLoop`, this method is not supported.
 
@@ -320,7 +355,7 @@ Creating connections
 Creating listening connections
 ------------------------------
 
-.. coroutinemethod:: BaseEventLoop.create_server(protocol_factory, host=None, port=None, \*, family=socket.AF_UNSPEC, flags=socket.AI_PASSIVE, sock=None, backlog=100, ssl=None, reuse_address=None)
+.. coroutinemethod:: BaseEventLoop.create_server(protocol_factory, host=None, port=None, \*, family=socket.AF_UNSPEC, flags=socket.AI_PASSIVE, sock=None, backlog=100, ssl=None, reuse_address=None, reuse_port=None)
 
    Create a TCP server (socket type :data:`~socket.SOCK_STREAM`) bound to
    *host* and *port*.
@@ -331,9 +366,12 @@ Creating listening connections
 
    Parameters:
 
-   * If *host* is an empty string or ``None``, all interfaces are assumed
-     and a list of multiple sockets will be returned (most likely
-     one for IPv4 and another one for IPv6).
+   * The *host* parameter can be a string, in that case the TCP server is
+     bound to *host* and *port*. The *host* parameter can also be a sequence
+     of strings and in that case the TCP server is bound to all hosts of the
+     sequence. If *host* is an empty string or ``None``, all interfaces are
+     assumed and a list of multiple sockets will be returned (most likely one
+     for IPv4 and another one for IPv6).
 
    * *family* can be set to either :data:`socket.AF_INET` or
      :data:`~socket.AF_INET6` to force the socket to use IPv4 or IPv6. If not set
@@ -356,14 +394,25 @@ Creating listening connections
      expire. If not specified will automatically be set to True on
      UNIX.
 
+   * *reuse_port* tells the kernel to allow this endpoint to be bound to the
+     same port as other existing endpoints are bound to, so long as they all
+     set this flag when being created. This option is not supported on
+     Windows.
+
    This method is a :ref:`coroutine <coroutine>`.
 
-   On Windows with :class:`ProactorEventLoop`, SSL/TLS is not supported.
+   .. versionchanged:: 3.5
+
+      On Windows with :class:`ProactorEventLoop`, SSL/TLS is now supported.
 
    .. seealso::
 
       The function :func:`start_server` creates a (:class:`StreamReader`,
       :class:`StreamWriter`) pair and calls back a function with this pair.
+
+   .. versionchanged:: 3.5.1
+
+      The *host* parameter can now be a sequence of strings.
 
 
 .. coroutinemethod:: BaseEventLoop.create_unix_server(protocol_factory, path=None, \*, sock=None, backlog=100, ssl=None)
@@ -575,14 +624,14 @@ Call a function in an :class:`~concurrent.futures.Executor` (pool of threads or
 pool of processes). By default, an event loop uses a thread pool executor
 (:class:`~concurrent.futures.ThreadPoolExecutor`).
 
-.. coroutinemethod:: BaseEventLoop.run_in_executor(executor, callback, \*args)
+.. coroutinemethod:: BaseEventLoop.run_in_executor(executor, func, \*args)
 
-   Arrange for a callback to be called in the specified executor.
+   Arrange for a *func* to be called in the specified executor.
 
    The *executor* argument should be an :class:`~concurrent.futures.Executor`
    instance. The default executor is used if *executor* is ``None``.
 
-   :ref:`Use functools.partial to pass keywords to the callback
+   :ref:`Use functools.partial to pass keywords to the *func*
    <asyncio-pass-keywords>`.
 
    This method is a :ref:`coroutine <coroutine>`.
@@ -853,7 +902,7 @@ the :meth:`BaseEventLoop.add_signal_handler` method::
         loop.add_signal_handler(getattr(signal, signame),
                                 functools.partial(ask_exit, signame))
 
-    print("Event loop running forever, press CTRL+c to interrupt.")
+    print("Event loop running forever, press Ctrl+C to interrupt.")
     print("pid %s: send SIGINT or SIGTERM to exit." % os.getpid())
     try:
         loop.run_forever()
